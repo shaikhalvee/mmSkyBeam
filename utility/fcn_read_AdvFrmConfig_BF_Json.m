@@ -70,6 +70,7 @@ if (params.Chirp_Frame_BF)
     adcData1Complex(:,:,13:16,:) = permute(radar_data_Rxchain_slave3, [2 4 1 3]);
 
 else
+    % default one to run
     numLoops = N_angles;
     [radar_data_Rxchain_master] = readBinFile(fileFullPath_master, params.Chirp_Frame_BF, frameIdx,numSamplePerChirp,numChirpPerLoop,numLoops, numRXPerDevice, numDevices);
     [radar_data_Rxchain_slave1] = readBinFile(fileFullPath_slave1, params.Chirp_Frame_BF, frameIdx,numSamplePerChirp,numChirpPerLoop,numLoops, numRXPerDevice, numDevices);
