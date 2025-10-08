@@ -21,29 +21,30 @@ S  = params.Slope_MHzperus * 1e12;                  % Hz/s
 T_chirp = (params.Idle_Time_us + params.Ramp_End_Time_us)*1e-6; % 45 us
 lambda  = c / (params.Start_Freq_GHz*1e9);
 
-Ns = params.Samples_per_Chirp;
-Nd = params.nchirp_loops;
-Nr = 2^nextpow2(Ns);
-Nd_fft = 2^nextpow2(Nd);
+numADC = params.Samples_per_Chirp;
+numChirpLoop = params.nchirp_loops;
+numRangeBin = 2^nextpow2(numADC);
+numDopplerBin = 2^nextpow2(numChirpLoop);
 
-Nrx = params.numRX;
-Nang = params.NumAnglesToSweep;
+numRx = params.numRX;
+numAngles = params.NumAnglesToSweep;
 pos  = params.D_RX(:);   % positions in 0.5λ units (non-uniform ULA)
 
 % Windowing
 % w_range   = hann(Ns, 'periodic');
 % w_dopp    = hann(Nd, 'periodic');
-w_range = hann_local(Ns);
-w_dopp = hann_local(Ns);
+rangeWindow = hann_local(numADC);
+dopplerWindow = hann_local(numADC);
 
 % Precompute axes
-range_bin = (0:Nr-1);
-range_axis = range_bin * c*fs/(2*S*Nr);
+rangeResolution = c*fs/(2*S*numADC);
+range_bin = (0:numRangeBin-1);
+range_axis = range_bin * rangeResolution;
 v_max = lambda/(4*T_chirp);
-doppler_axis = linspace(-v_max, v_max, Nd_fft).';
+doppler_axis = linspace(-v_max, v_max, numDopplerBin).';
 
 % Outputs
-out.RD_beam = cell(Nang,1);
+out.RD_beam = cell(numAngles,1);
 out.range_axis = range_axis;
 out.doppler_axis = doppler_axis;
 detections = [];
@@ -55,14 +56,14 @@ if opts.dcOffsetRemoval
 end
 
 % Apply range window
-adcCube_win = adcRadarData_txbf .* reshape(w_range,[],1,1,1);
+adcCube_win = adcRadarData_txbf .* reshape(rangeWindow,[],1,1,1);
 
 % Range FFT (dim 1)
-rangeFFT = fft(adcCube_win, Nr, 1); % [Nr, Nd, Nrx, Nang]
+rangeFFT = fft(adcCube_win, numRangeBin, 1); % [Nr, Nd, Nrx, Nang]
 
 % RX phase-only calibration (apply HERE)
 cal = exp(-1j*BF_MIMO_ref_deg(:)*pi/180).'; % row 1xNrx
-rangeFFT = rangeFFT .* reshape(cal, 1,1,Nrx,1);
+rangeFFT = rangeFFT .* reshape(cal, 1,1,numRx,1);
 
 % Optional slow-time mean removal per [r,rx,ang]
 if opts.dopplerClutterRemoval
@@ -70,7 +71,7 @@ if opts.dopplerClutterRemoval
 end
 
 % Doppler window (apply before making X_r matrices)
-rangeFFT = rangeFFT .* reshape(w_dopp,1,[],1,1);
+rangeFFT = rangeFFT .* reshape(dopplerWindow,1,[],1,1);
 
 % ----------------- Adaptive RX beamforming (per angle, per range) -----
 % We produce a beamformed slow-time per (r,angle), then Doppler FFT it.
@@ -78,7 +79,7 @@ rangeFFT = rangeFFT .* reshape(w_dopp,1,[],1,1);
 delta_loading = 0.05;      % diagonal loading factor (× tr(R)/N)
 useFB = true;              % forward-backward averaging flag
 
-for ia = 1:Nang
+for ia = 1:numAngles
     theta0_deg = params.anglesToSteer(ia);
     theta0 = deg2rad(theta0_deg);
 
@@ -89,25 +90,25 @@ for ia = 1:Nang
     th_g = asin(vis);           % radians, 0..2 visible lobes
 
     % Pre-allocate
-    Y = complex(zeros(Nr, Nd)); % beamformed slow-time per range
+    Y = complex(zeros(numRangeBin, numChirpLoop)); % beamformed slow-time per range
 
     % Loop ranges: (vectorization across r is possible; clarity first)
-    for r = 1:Nr
+    for r = 1:numRangeBin
         Xr = squeeze(rangeFFT(r,:,:,ia)); % [Nd x Nrx]
         if ~any(Xr(:)), continue; end
 
         % Sample covariance across slow-time
-        R = (Xr' * Xr) / Nd;
+        R = (Xr' * Xr) / numChirpLoop;
         R = 0.5*(R+R');                    % symmetrize
 
         % Forward-backward averaging (optional)
         if useFB
-            J = fliplr(eye(Nrx));
+            J = fliplr(eye(numRx));
             R = 0.5*(R + J*conj(R)*J);
         end
 
         % Diagonal loading
-        R = R + (delta_loading * trace(R)/Nrx) * eye(Nrx);
+        R = R + (delta_loading * trace(R)/numRx) * eye(numRx);
 
         % Constraints: unity at θ0, nulls at θg
         C = steering_vec_nonuniform(pos, theta0);
@@ -127,7 +128,7 @@ for ia = 1:Nang
 
     % Doppler FFT per range
     Yw = Y; % already windowed in slow-time
-    RD = fftshift(fft(Yw, Nd_fft, 2), 2);    % [Nr x Nd_fft]
+    RD = fftshift(fft(Yw, numDopplerBin, 2), 2);    % [Nr x Nd_fft]
     out.RD_beam{ia} = RD;
 end
 
@@ -137,10 +138,10 @@ dcBand = 1;   % +/- 1 bin
 gateMaxPerAngle = 4; % 10 range bins
 
 gates = [];
-for ia=1:Nang
+for ia=1:numAngles
     RDpow = abs(out.RD_beam{ia}).^2;           % [Nr x Nd_fft]
-    dcIdx = floor(Nd_fft/2)+1;
-    sl = max(1,dcIdx-dcBand):min(Nd_fft, dcIdx+dcBand);
+    dcIdx = floor(numDopplerBin/2)+1;
+    sl = max(1,dcIdx-dcBand):min(numDopplerBin, dcIdx+dcBand);
     rangePow = sum(RDpow(:,sl),2);             % integrate around DC
 
     % Simple 1D OS-CFAR along range
@@ -170,9 +171,9 @@ if ~isempty(gates)
         % Re-extract from pre-FFT beamformed slow-time to center properly:
         % (We saved Y per angle in local scope; recompute if needed)
         Xr = squeeze(rangeFFT(r,:,:,ia));
-        R  = (Xr' * Xr)/Nd; R = 0.5*(R+R');
-        if useFB, J=fliplr(eye(Nrx)); R=0.5*(R+J*conj(R)*J); end
-        R = R + (delta_loading * trace(R)/Nrx) * eye(Nrx);
+        R  = (Xr' * Xr)/numChirpLoop; R = 0.5*(R+R');
+        if useFB, J=fliplr(eye(numRx)); R=0.5*(R+J*conj(R)*J); end
+        R = R + (delta_loading * trace(R)/numRx) * eye(numRx);
         C = steering_vec_nonuniform(pos, deg2rad(params.anglesToSteer(ia)));
         s0 = sin(deg2rad(params.anglesToSteer(ia)));
         cand = [s0-0.5, s0+0.5]; vis = cand(abs(cand)<=1); th_g = asin(vis);

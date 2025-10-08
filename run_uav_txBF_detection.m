@@ -72,16 +72,17 @@ for i_file = 1:numel(fileIdx_unique)
         % ---- PROCESS THIS FRAME (does everything through detection) ----
         results = process_frame_uav(adcCube, params, BF_MIMO_ref_deg, opts);
 
+        all_range_axis{frameCounter} = results.range_axis;
+        all_doppler_axis{frameCounter} = results.doppler_axis;
+
         % Save per-frame RD (optional & large)
         save(fullfile(frame_folder, sprintf('frame_%05d.mat', frameCounter)), ...
-             '-struct','results','RD_beam','range_axis','doppler_axis','detections','-v7.3');
+             '-struct','results','RD_beam','detections','-v7.3');
 
         % Collect detections
         if ~isempty(results.detections)
             all_detections = [all_detections; [repmat(frameCounter,size(results.detections,1),1), results.detections]];
         end
-
-        all_range_axis{frameCounter} = range_axis;
 
         fprintf('[INFO] processed frame %d (%d/%d in file %d)\n', frameCounter, frameId, numValidFrames, i_file);
         frameCounter = frameCounter + 1;
