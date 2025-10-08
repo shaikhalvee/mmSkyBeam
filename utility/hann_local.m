@@ -42,12 +42,7 @@
 %   win: generated windowing coefficiens.
 
 
-
 function win = hann_local(len)
-    
-    
-     win = ((1:len)')./(len+1);
-     win = 0.5-0.5*cos(2*pi*win);
-     
-     
+    win = ((1:len)')./(len+1);
+    win = 0.5-0.5*cos(2*pi*win);
 end

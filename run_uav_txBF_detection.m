@@ -50,8 +50,8 @@ fileIdx_unique = getUniqueFileIdx(adc_data_folder);
 all_detections = [];    % [frame, angleIdx, range_m, score]
 
 % all_RD_map = {};        % cell array for all frames (if #frames can differ per file)
-% all_range_axis = {};
-% all_doppler_axis = {};
+all_range_axis = {};
+all_doppler_axis = {};
 % all_range_angle_stich = {};
 % all_to_plot = {};
 
@@ -81,8 +81,9 @@ for i_file = 1:numel(fileIdx_unique)
             all_detections = [all_detections; [repmat(frameCounter,size(results.detections,1),1), results.detections]];
         end
 
-        fprintf('[INFO] processed frame %d (%d/%d in file %d)\n', ...
-                frameCounter, frameId, numValidFrames, i_file);
+        all_range_axis{frameCounter} = range_axis;
+
+        fprintf('[INFO] processed frame %d (%d/%d in file %d)\n', frameCounter, frameId, numValidFrames, i_file);
         frameCounter = frameCounter + 1;
     end
 end
